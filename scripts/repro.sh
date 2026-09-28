@@ -41,6 +41,17 @@ psql_q "SELECT r.id, r.check_in_date AT TIME ZONE 'UTC' AS check_in_utc,
         FROM reservations r
         JOIN properties p ON p.id = r.property_id AND p.tenant_id = r.tenant_id
         WHERE r.id = 'res-tz-1';"
+psql_q "SELECT 'UTC month boundaries' AS method, COUNT(*), SUM(r.total_amount)
+        FROM reservations r
+        WHERE r.property_id = 'prop-001' AND r.tenant_id = 'tenant-a'
+          AND r.check_in_date >= '2024-03-01 00:00+00' AND r.check_in_date < '2024-04-01 00:00+00'
+        UNION ALL
+        SELECT 'property-local boundaries', COUNT(*), SUM(r.total_amount)
+        FROM reservations r
+        JOIN properties p ON p.id = r.property_id AND p.tenant_id = r.tenant_id
+        WHERE r.property_id = 'prop-001' AND r.tenant_id = 'tenant-a'
+          AND (r.check_in_date AT TIME ZONE p.timezone) >= '2024-03-01'
+          AND (r.check_in_date AT TIME ZONE p.timezone) < '2024-04-01';"
 echo -n "Sunset prop-001 March 2024:    "; summary "$A" prop-001 "&year=2024&month=3"
 echo -n "Sunset prop-001 February 2024: "; summary "$A" prop-001 "&year=2024&month=2"
 
