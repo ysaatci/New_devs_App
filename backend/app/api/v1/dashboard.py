@@ -23,6 +23,8 @@ async def get_dashboard_summary(
     except Exception:
         raise HTTPException(status_code=503, detail="Revenue data is temporarily unavailable")
 
+    # 'total' is already rounded to cents exactly once (Decimal, half-up) in the
+    # service layer; clients must display it as-is rather than re-rounding floats.
     total_revenue_float = float(revenue_data['total'])
 
     return {

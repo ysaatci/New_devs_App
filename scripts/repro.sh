@@ -55,7 +55,21 @@ psql_q "SELECT 'UTC month boundaries' AS method, COUNT(*), SUM(r.total_amount)
 echo -n "Sunset prop-001 March 2024:    "; summary "$A" prop-001 "&year=2024&month=3"
 echo -n "Sunset prop-001 February 2024: "; summary "$A" prop-001 "&year=2024&month=2"
 
-echo "=== 4. Precision: raw totals the API hands to the frontend"
+echo "=== 4. Precision: sub-cent amounts (NUMERIC(10,3)) and rounding"
+psql_q "SELECT id, total_amount FROM reservations WHERE id LIKE 'res-dec-%' ORDER BY id;"
+python - <<'PY'
+from decimal import Decimal, ROUND_HALF_UP
+rows = ["333.333", "333.333", "333.334"]
+print("round each row to cents :", sum(Decimal(x).quantize(Decimal("0.01"), ROUND_HALF_UP) for x in rows))
+print("sum exactly, round once :", sum(Decimal(x) for x in rows).quantize(Decimal("0.01"), ROUND_HALF_UP))
+print("float round(2.675, 2)   :", round(2.675, 2), "(half-up gives 2.68)")
+PY
+node -e "console.log('JS Math.round(1.005*100)/100 :', Math.round(1.005 * 100) / 100, '(half-up gives 1.01)')" 2>/dev/null
+docker compose exec -T backend python -c "
+from decimal import Decimal
+from app.services.reservations import to_cents
+for v in ['1000.000', '2.675', '1.005', '666.666']: print('to_cents(' + v + ') =', to_cents(Decimal(v)))" 2>/dev/null
+echo "API totals:"
 for p in prop-001 prop-002 prop-003; do echo -n "Sunset $p: "; summary "$A" $p; done
 for p in prop-004 prop-005; do echo -n "Ocean  $p: "; summary "$B" $p; done
 

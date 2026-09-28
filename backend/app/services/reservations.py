@@ -1,6 +1,18 @@
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Any, Optional
+
+CENTS = Decimal("0.01")
+
+
+def to_cents(amount: Decimal) -> Decimal:
+    """
+    Rounds a money amount to cents exactly once, half-up. Amounts are stored with
+    sub-cent precision (NUMERIC(10,3)), so they must be summed at full precision
+    first; rounding per reservation or in binary floats drifts by cents
+    (e.g. 333.333 + 333.333 + 333.334 -> 999.99 when rounded per row).
+    """
+    return amount.quantize(CENTS, rounding=ROUND_HALF_UP)
 
 
 async def _aggregate_revenue(
@@ -40,7 +52,9 @@ async def _aggregate_revenue(
                 query = text(f"""
                     SELECT
                         SUM(r.total_amount) as total_revenue,
-                        COUNT(r.id) as reservation_count
+                        COUNT(r.id) as reservation_count,
+                        MIN(r.currency) as currency,
+                        COUNT(DISTINCT r.currency) as currency_count
                     FROM reservations r
                     JOIN properties p
                       ON p.id = r.property_id AND p.tenant_id = r.tenant_id
@@ -52,12 +66,16 @@ async def _aggregate_revenue(
                 row = result.fetchone()
 
                 if row and row.reservation_count:
-                    total_revenue = Decimal(str(row.total_revenue))
+                    if row.currency_count > 1:
+                        # Summing amounts in different currencies would produce a meaningless total
+                        raise ValueError(f"Mixed currencies for property {property_id}")
+                    # SUM over NUMERIC is exact; round to cents only once, on the final total
+                    total_revenue = to_cents(Decimal(str(row.total_revenue)))
                     return {
                         "property_id": property_id,
                         "tenant_id": tenant_id,
                         "total": str(total_revenue),
-                        "currency": "USD",
+                        "currency": row.currency or "USD",
                         "count": row.reservation_count
                     }
                 else:
