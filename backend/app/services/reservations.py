@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 CENTS = Decimal("0.01")
 
@@ -13,6 +13,35 @@ def to_cents(amount: Decimal) -> Decimal:
     (e.g. 333.333 + 333.333 + 333.334 -> 999.99 when rounded per row).
     """
     return amount.quantize(CENTS, rounding=ROUND_HALF_UP)
+
+
+class PropertyNotFound(LookupError):
+    """The property does not exist for the requesting tenant."""
+
+
+async def get_tenant_properties(tenant_id: str) -> List[Dict[str, Any]]:
+    """
+    Lists the properties that belong to a tenant.
+    """
+    from app.core.database_pool import db_pool
+    from sqlalchemy import text
+
+    if not db_pool.session_factory:
+        await db_pool.initialize()
+    if not db_pool.session_factory:
+        raise Exception("Database pool not available")
+
+    async with db_pool.get_session() as session:
+        result = await session.execute(
+            text("""
+                SELECT id, name, timezone
+                FROM properties
+                WHERE tenant_id = :tenant_id
+                ORDER BY id
+            """),
+            {"tenant_id": tenant_id},
+        )
+        return [{"id": row.id, "name": row.name, "timezone": row.timezone} for row in result]
 
 
 async def _aggregate_revenue(
@@ -49,23 +78,29 @@ async def _aggregate_revenue(
                     """
                     params.update(start_date=start_date, end_date=end_date)
 
+                # Start from the tenant's own property so that a property belonging to
+                # another tenant yields no row at all (404) rather than an empty total.
                 query = text(f"""
                     SELECT
                         SUM(r.total_amount) as total_revenue,
                         COUNT(r.id) as reservation_count,
                         MIN(r.currency) as currency,
                         COUNT(DISTINCT r.currency) as currency_count
-                    FROM reservations r
-                    JOIN properties p
-                      ON p.id = r.property_id AND p.tenant_id = r.tenant_id
-                    WHERE r.property_id = :property_id AND r.tenant_id = :tenant_id
-                    {period_filter}
+                    FROM properties p
+                    LEFT JOIN reservations r
+                      ON r.property_id = p.id AND r.tenant_id = p.tenant_id
+                      {period_filter}
+                    WHERE p.id = :property_id AND p.tenant_id = :tenant_id
+                    GROUP BY p.id
                 """)
 
                 result = await session.execute(query, params)
                 row = result.fetchone()
 
-                if row and row.reservation_count:
+                if row is None:
+                    raise PropertyNotFound(property_id)
+
+                if row.reservation_count:
                     if row.currency_count > 1:
                         # Summing amounts in different currencies would produce a meaningless total
                         raise ValueError(f"Mixed currencies for property {property_id}")
@@ -90,6 +125,8 @@ async def _aggregate_revenue(
         else:
             raise Exception("Database pool not available")
 
+    except PropertyNotFound:
+        raise
     except Exception as e:
         print(f"Database error for {property_id} (tenant: {tenant_id}): {e}")
         # Never serve placeholder figures for financial data; let the caller report the outage

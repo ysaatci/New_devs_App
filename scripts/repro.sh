@@ -34,6 +34,9 @@ echo "Redis keys:"; redis KEYS 'revenue:*'
 
 echo "=== 2. Ocean asking for a Sunset-only property"
 echo -n "Ocean  prop-002: "; summary "$B" prop-002
+echo "Property list each tenant is offered:"
+echo -n "Sunset: "; curl -s "$API/api/v1/dashboard/properties" -H "Authorization: Bearer $A"; echo
+echo -n "Ocean:  "; curl -s "$API/api/v1/dashboard/properties" -H "Authorization: Bearer $B"; echo
 
 echo "=== 3. March 2024 for Beach House Alpha (Europe/Paris)"
 psql_q "SELECT r.id, r.check_in_date AT TIME ZONE 'UTC' AS check_in_utc,
