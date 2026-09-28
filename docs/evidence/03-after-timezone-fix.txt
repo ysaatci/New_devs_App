@@ -1,0 +1,42 @@
+=== 0. Ground truth in Postgres
+ tenant_id | property_id | bookings |  total   
+-----------+-------------+----------+----------
+ tenant-a  | prop-001    |        4 | 2250.000
+ tenant-a  | prop-002    |        4 | 4975.500
+ tenant-a  | prop-003    |        2 | 6100.500
+ tenant-b  | prop-004    |        4 | 1776.500
+ tenant-b  | prop-005    |        3 | 3256.000
+(5 rows)
+
+=== 1. Cross-tenant cache: prop-001 exists in BOTH tenants
+Sunset prop-001 (first load): {"property_id":"prop-001","total_revenue":2250.0,"currency":"USD","reservations_count":4}
+Ocean  prop-001 (refresh):    {"property_id":"prop-001","total_revenue":0.0,"currency":"USD","reservations_count":0}
+Redis keys:
+revenue:tenant-b:prop-001:all
+revenue:tenant-a:prop-001:all
+=== 2. Ocean asking for a Sunset-only property
+Ocean  prop-002: {"property_id":"prop-002","total_revenue":0.0,"currency":"USD","reservations_count":0}
+=== 3. March 2024 for Beach House Alpha (Europe/Paris)
+    id    |    check_in_utc     |   check_in_local    |   timezone   
+----------+---------------------+---------------------+--------------
+ res-tz-1 | 2024-02-29 23:30:00 | 2024-03-01 00:30:00 | Europe/Paris
+(1 row)
+
+          method           | count |   sum    
+---------------------------+-------+----------
+ UTC month boundaries      |     3 | 1000.000
+ property-local boundaries |     4 | 2250.000
+(2 rows)
+
+Sunset prop-001 March 2024:    {"property_id":"prop-001","total_revenue":2250.0,"currency":"USD","reservations_count":4}
+Sunset prop-001 February 2024: {"property_id":"prop-001","total_revenue":0.0,"currency":"USD","reservations_count":0}
+=== 4. Precision: raw totals the API hands to the frontend
+Sunset prop-001: {"property_id":"prop-001","total_revenue":2250.0,"currency":"USD","reservations_count":4}
+Sunset prop-002: {"property_id":"prop-002","total_revenue":4975.5,"currency":"USD","reservations_count":4}
+Sunset prop-003: {"property_id":"prop-003","total_revenue":6100.5,"currency":"USD","reservations_count":2}
+Ocean  prop-004: {"property_id":"prop-004","total_revenue":1776.5,"currency":"USD","reservations_count":4}
+Ocean  prop-005: {"property_id":"prop-005","total_revenue":3256.0,"currency":"USD","reservations_count":3}
+=== Backend errors (last 3)
+backend-1  | ERROR:app.main:❌ Supabase connection pool initialization failed: supabase_url is required
+backend-1  | ERROR:app.main:❌ Supabase connection pool initialization failed: supabase_url is required
+backend-1  | INFO:app.core.database_pool:✅ Database connection pool initialized
